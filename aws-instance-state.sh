@@ -1,4 +1,4 @@
-#! /bin/bash
+#! /bin/bash -x
 # aws-instance-state.sh     LIST AWS INSTANCES - USEFUL STATUS DETAILS IN TABLE, JSON OR TEXT FORMAT
 # 							TOM KIMES
 #							4/4/2014
@@ -8,22 +8,33 @@ usage() {
 	echo "Usage: aws-instance-status.sh  -s <r|s|t>  -o >t|j|x   -t <d|l> -d  [ instance-id [ instance-id2 ] ... [instance-idn] ]"
     echo "       -s      Run State    r|s|t|b|h|p      r=running, s=stopping|stopped, t=terminated, b=rebooting, h=shutting, p=pending, "
     echo "       -o      Output       t|j|x      t=table, j=json, x=text"
-	echo "       -t      Type         d|l        d=dictionary table, l=list table"
+	echo "       -l      List Output  d|l        d=dictionary table, l=list table"
+	echo "       -t      Tag Option   [<key>]    provide tag key for tag colume <default is 'name'>."
     echo "       -d      enable debug (more verbose) mode"
 	echo "       The default is to view all instances in all run states in a dictionary table: -ot -tl"
 }
 
 DEBUG=
 
-while getopts 's:o:t:d?' option
+TAGCMD=$(which aws-tag-id.sh)
+if [ ! "$TAGCMD" ]
+then
+	echo "ERROR: Script aws-tag-id.sh was not found in path.  Cannot continue."
+	usage
+	exit 1
+fi
+
+while getopts 's:o:l:t:d?' option
 do
   case "$option" in
   s)    status_filter=$OPTARG
         ;;
   o)    output=$OPTARG
         ;;
-  t)    type_output=$OPTARG
-	          ;;
+  l)    list_output=$OPTARG
+        ;;
+  t)    tag_key=$OPTARG
+		;;
   d)    DEBUG=debug
         ;;
   ?)    usage
@@ -36,12 +47,7 @@ shift "$(( OPTIND - 1 ))"
 
 INSTANCE="$@"
 
-if [ "X$INSTANCE" != "X" ]
-then
-	INSTANCE="--instance-id $INSTANCE"
-fi
-
-[ "$DEBUG" ] && echo "Debug: INSTANCE: ${INSTANCE:-all}"
+[ "$DEBUG" ] && echo "Debug:  INSTANCE: ${INSTANCE:-all}"
 
 case "$status_filter" in
 	s)  STATE=stop
@@ -64,7 +70,7 @@ case "$status_filter" in
 		;;
 esac
 
-[ "$DEBUG" ] && echo "Debug:    STATE: ${STATE:-all}"
+[ "$DEBUG" ] && echo "Debug:     STATE: ${STATE:-all}"
 
 
 case "$output" in
@@ -82,9 +88,9 @@ case "$output" in
 		;;
 esac
 
-[ "$DEBUG" ] && echo "Debug:   OUTPUT: $OUTPUT"
+[ "$DEBUG" ] && echo "Debug:    OUTPUT: $OUTPUT"
 
-case "$type_output" in
+case "$list_output" in
 	d)  FORMAT=dictionary
 		;;
 	l)	FORMAT=list
@@ -92,15 +98,21 @@ case "$type_output" in
    '')  
 	    FORMAT=dictionary  #DEFAULT IS DICTIONARY
  		;;
-	*)  echo "ERROR:  -t $type_output   is not a valid format type"
+	*)  echo "ERROR:  -l $list_output   is not a valid format type"
 	    usage
 	    exit 1
 		;;
 		
 esac
 
-[ "$DEBUG" ] && echo "Debug:   FORMAT: $FORMAT"
+[ "$DEBUG" ] && echo "Debug:    FORMAT: $FORMAT"
 
+if [ "X$tag_key" == "X" ]
+then
+  tag_key="Name"
+fi
+
+[ "$DEBUG" ] && echo "Debug:   TAG_KEY: $tag_key"
 
 # FIELDS TO INCLUDE IN QUERY
 # STRUCTURE IS <LIST LABEL>:FIELD.ELEMENT
@@ -126,6 +138,8 @@ L06="$(echo $F06|cut -d: -f2-)"
 L07="$(echo $F07|cut -d: -f2-)"
 L08="$(echo $F08|cut -d: -f2-)"
 
+#COPY TAG WITH NAME KEY TO ~ID TO SUPPORT F01,L01  (OTHERWISE A RANDOM KEY VALUE APPEARS)
+$TAGCMD -t "~ID" -c $INSTANCE
 
 if [ "X$FORMAT" == "Xdictionary" ] # IF DICTIONARY FORMAT
 then
@@ -146,7 +160,7 @@ then
 	aws ec2 describe-instances  --no-paginate \
 		--filters "Name=instance-state-name,Values=${STATE:-*}*" \
 		--output $OUTPUT  \
-		--query "Reservations[*].{${F00},${F01},${F02},${F03},${F04},${F05},${F06},${F07},${F08}}" $INSTANCE
+		--query "Reservations[*].{${F00},${F01},${F02},${F03},${F04},${F05},${F06},${F07},${F08}}" --instance-id $INSTANCE
 else	# LIST FORMAT
 	# LIST VIEW: QUERY INSTANCES, FILTER ON RUN STATE, LIST SPECIFIC FIELD AND OUTPUT IN A TABLE
 	if [ "X$debug" != "X" ]
@@ -164,7 +178,10 @@ else	# LIST FORMAT
 	aws ec2 describe-instances --no-paginate \
 		--filters "Name=instance-state-name,Values=${STATE:-*}*" \
 		--output $OUTPUT  \
-		--query "Reservations[*].[${L00},${L01},${L02},${L03},${L04},${L05},${L06},${L07},${L08}]" $INSTANCE
+		--query "Reservations[*].[${L00},${L01},${L02},${L03},${L04},${L05},${L06},${L07},${L08}]" --instance-id $INSTANCE
 fi    
+
+#REMOVE TAG WITH NAME KEY TO ~ID TO SUPPORT F01,L01
+$TAGCMD -t "~ID" -r $INSTANCE
  
 exit 0
