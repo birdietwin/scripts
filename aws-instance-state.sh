@@ -1,4 +1,4 @@
-#! /bin/bash
+#! /bin/bash -x
 # aws-instance-state.sh     LIST AWS INSTANCES - USEFUL STATUS DETAILS IN TABLE, JSON OR TEXT FORMAT
 # 							TOM KIMES
 #							4/4/2014
